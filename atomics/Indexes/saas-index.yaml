@@ -18248,7 +18248,7 @@ privilege-escalation:
         description: Tartare, M. et al. (2020, May 21). No “Game over” for the Winnti
           Group. Retrieved August 24, 2020.
       modified: '2020-10-09T16:05:36.344Z'
-      name: Print Processors
+      name: 'Boot or Logon Autostart Execution: Print Processors'
       description: "Adversaries may abuse print processors to run malicious DLLs during
         system boot for persistence and/or privilege escalation. Print processors
         are DLLs that are loaded by the print spooler service, spoolsv.exe, during
@@ -18288,6 +18288,7 @@ privilege-escalation:
       x_mitre_permissions_required:
       - Administrator
       - SYSTEM
+      identifier: T1547.012
     atomic_tests: []
   T1574.001:
     technique:
@@ -32609,7 +32610,7 @@ persistence:
         description: Tartare, M. et al. (2020, May 21). No “Game over” for the Winnti
           Group. Retrieved August 24, 2020.
       modified: '2020-10-09T16:05:36.344Z'
-      name: Print Processors
+      name: 'Boot or Logon Autostart Execution: Print Processors'
       description: "Adversaries may abuse print processors to run malicious DLLs during
         system boot for persistence and/or privilege escalation. Print processors
         are DLLs that are loaded by the print spooler service, spoolsv.exe, during
@@ -32649,6 +32650,7 @@ persistence:
       x_mitre_permissions_required:
       - Administrator
       - SYSTEM
+      identifier: T1547.012
     atomic_tests: []
   T1574.001:
     technique:
@@ -41600,7 +41602,7 @@ persistence:
         D. - Defending O365 - 2019)"
       modified: '2022-04-19T14:55:26.110Z'
       created_by_ref: identity--c78cb6e5-0c4b-4611-8297-d1b8b55e40b5
-      name: Additional Email Delegate Permissions
+      name: 'Account Manipulation: Additional Email Delegate Permissions'
       x_mitre_detection: "Monitor for unusual Exchange and Office 365 email account
         permissions changes that may indicate excessively broad permissions being
         granted to compromised accounts.\n\nEnable the UpdateFolderPermissions action
@@ -41621,6 +41623,7 @@ persistence:
       - 'Application Log: Application Log Content'
       x_mitre_attack_spec_version: 2.1.0
       x_mitre_modified_by_ref: identity--c78cb6e5-0c4b-4611-8297-d1b8b55e40b5
+      identifier: T1098.002
     atomic_tests: []
   T1084:
     technique:

