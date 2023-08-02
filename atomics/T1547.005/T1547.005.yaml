@@ -23,6 +23,7 @@ atomic_tests:
     elevation_required: true
 
 - name: Modify HKLM:\System\CurrentControlSet\Control\Lsa\OSConfig Security Support Provider configuration in registry
+  auto_generated_guid: 7b74ed07-9723-4f11-81b0-acd50af4fd9e
   description: Add a value to a Windows registry SSP key, simulating an adversarial modification of those keys.
   supported_platforms:
   - windows
